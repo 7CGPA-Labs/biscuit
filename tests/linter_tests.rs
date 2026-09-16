@@ -1,5 +1,5 @@
-use biscuit::linter::yaml;
 use biscuit::linter::latex;
+use biscuit::linter::yaml;
 
 #[test]
 fn test_yaml_linter_valid() {

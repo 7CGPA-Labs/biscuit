@@ -7,39 +7,53 @@ fn download_and_extract(url: &str, out_path: &PathBuf, binary_name: &str, archiv
     if out_path.exists() {
         return;
     }
-    
+
     let resp = match reqwest::blocking::get(url) {
         Ok(r) if r.status().is_success() => r,
         _ => {
-            println!("cargo:warning=Failed to download {}. Creating a dummy binary instead.", binary_name);
+            println!(
+                "cargo:warning=Failed to download {}. Creating a dummy binary instead.",
+                binary_name
+            );
             fs::write(out_path, b"dummy binary").unwrap();
             return;
         }
     };
-    
+
     let bytes = match resp.bytes() {
         Ok(b) => b,
         _ => {
-            println!("cargo:warning=Failed to read bytes for {}. Creating a dummy binary.", binary_name);
+            println!(
+                "cargo:warning=Failed to read bytes for {}. Creating a dummy binary.",
+                binary_name
+            );
             fs::write(out_path, b"dummy binary").unwrap();
             return;
         }
     };
-    
+
     // We'll write to a temp file and extract using system tar to keep it simple and reliable
     let temp_archive = out_path.with_extension(archive_type);
     fs::write(&temp_archive, &bytes).expect("Failed to write temp archive");
-    
-    let temp_dir = out_path.parent().unwrap().join(format!("temp_{}", binary_name));
+
+    let temp_dir = out_path
+        .parent()
+        .unwrap()
+        .join(format!("temp_{}", binary_name));
     fs::create_dir_all(&temp_dir).unwrap();
-    
+
     let status = Command::new("tar")
-        .args(&["xf", temp_archive.to_str().unwrap(), "-C", temp_dir.to_str().unwrap()])
+        .args(&[
+            "xf",
+            temp_archive.to_str().unwrap(),
+            "-C",
+            temp_dir.to_str().unwrap(),
+        ])
         .status()
         .expect("Failed to run tar");
-        
+
     assert!(status.success(), "Tar extraction failed");
-    
+
     // Find the binary recursively
     let mut found = false;
     for entry in walkdir::WalkDir::new(&temp_dir) {
@@ -51,31 +65,102 @@ fn download_and_extract(url: &str, out_path: &PathBuf, binary_name: &str, archiv
         }
     }
     assert!(found, "Could not find binary {} in archive", binary_name);
-    
+
     // Cleanup
     fs::remove_dir_all(temp_dir).unwrap();
     fs::remove_file(temp_archive).unwrap();
 }
 
+fn download_katex(out_dir: &PathBuf) {
+    let katex_dir = out_dir.join("katex");
+    let version_file = out_dir.join("katex_version.txt");
+
+    // Check latest release
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("biscuit-build")
+        .build()
+        .unwrap();
+    let resp = match client
+        .get("https://api.github.com/repos/KaTeX/KaTeX/releases/latest")
+        .send()
+    {
+        Ok(r) if r.status().is_success() => r,
+        _ => return, // Silently fail and use existing if offline
+    };
+
+    let json: serde_json::Value = match resp.json() {
+        Ok(j) => j,
+        Err(_) => return,
+    };
+
+    let tag_name = match json["tag_name"].as_str() {
+        Some(t) => t,
+        None => return,
+    };
+
+    if version_file.exists() && katex_dir.exists() {
+        if let Ok(cached) = fs::read_to_string(&version_file) {
+            if cached == tag_name {
+                return; // Already up to date
+            }
+        }
+    }
+
+    // Need to download new version
+    let tarball_url = format!(
+        "https://github.com/KaTeX/KaTeX/releases/download/{}/katex.tar.gz",
+        tag_name
+    );
+    let bytes = match client.get(&tarball_url).send() {
+        Ok(r) if r.status().is_success() => r.bytes().unwrap(),
+        _ => return,
+    };
+
+    let temp_archive = out_dir.join("katex.tar.gz");
+    fs::write(&temp_archive, &bytes).unwrap();
+
+    if katex_dir.exists() {
+        fs::remove_dir_all(&katex_dir).unwrap();
+    }
+    fs::create_dir_all(&katex_dir).unwrap();
+
+    let status = Command::new("tar")
+        .args(&[
+            "xf",
+            temp_archive.to_str().unwrap(),
+            "-C",
+            katex_dir.to_str().unwrap(),
+        ])
+        .status()
+        .expect("Failed to run tar");
+
+    assert!(status.success(), "Tar extraction failed for KaTeX");
+
+    fs::remove_file(temp_archive).unwrap();
+    fs::write(version_file, tag_name).unwrap();
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    
+
     let pandoc_path = out_dir.join("pandoc");
     let typst_path = out_dir.join("typst");
-    
+
     download_and_extract(
         "https://github.com/jgm/pandoc/releases/download/3.1.13/pandoc-3.1.13-linux-amd64.tar.gz",
         &pandoc_path,
         "pandoc",
-        "tar.gz"
+        "tar.gz",
     );
-    
+
     download_and_extract(
         "https://github.com/typst/typst/releases/download/v0.11.0/typst-x86_64-unknown-linux-musl.tar.xz",
         &typst_path,
         "typst",
         "tar.xz"
     );
+
+    download_katex(&out_dir);
 }

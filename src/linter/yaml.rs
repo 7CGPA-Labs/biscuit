@@ -2,7 +2,7 @@ use super::markdown::LintError;
 
 pub fn lint_yaml(text: &str) -> Vec<LintError> {
     let mut errors = Vec::new();
-    
+
     if text.starts_with("---\n") {
         if let Some(end_idx) = text[4..].find("\n---\n") {
             let frontmatter = &text[4..4 + end_idx];
@@ -16,7 +16,7 @@ pub fn lint_yaml(text: &str) -> Vec<LintError> {
                         }
                     }
                     start += loc.column().saturating_sub(1);
-                    
+
                     errors.push(LintError {
                         start,
                         end: start + 1,
@@ -32,6 +32,6 @@ pub fn lint_yaml(text: &str) -> Vec<LintError> {
             }
         }
     }
-    
+
     errors
 }

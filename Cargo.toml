@@ -4,36 +4,38 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-gtk = { version = "0.9", package = "gtk4", features = ["v4_12"] }
-libadwaita = { version = "0.7", features = ["v1_5"] }
-sourceview5 = { version = "0.9" }
+gtk = { version = "0.8", package = "gtk4", features = ["v4_12"] }
+libadwaita = { version = "0.6", features = ["v1_4"] }
+sourceview5 = { version = "0.8" }
 ort = { version = "2.0.0-rc.13" }
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 serde_yaml = "0.9"
-pulldown-cmark = "0.11"
+pulldown-cmark = "0.12"
 twox-hash = "1.6"
 similar = "2.6"
 tokio = { version = "1.37", features = ["full"] }
 crossbeam-channel = "0.5"
 reqwest = { version = "0.12", features = ["blocking"] }
 directories = "5.0"
-cairo-rs = "0.20"
-glib = "0.20"
-gdk = { version = "0.9", package = "gdk4" }
+cairo-rs = "0.19"
+glib = "0.19"
+gdk = { version = "0.8", package = "gdk4" }
 
 [build-dependencies]
-reqwest = { version = "0.12", features = ["blocking"] }
+reqwest = { version = "0.12", features = ["blocking", "json"] }
 tar = "0.4"
 flate2 = "1.0"
 xz2 = "0.1"
 zip = "0.6"
 walkdir = "2.5.0"
+serde_json = "1.0"
 
 [package.metadata.deb]
 maintainer = "GaganCJ <gaganjchandra2379@gmail.com>"
 copyright = "2023, 7CGPA-Labs"
 license-file = ["LICENSE", "4"]
-depends = "$auto, libgtk-4-1, libadwaita-1-0"
+depends = "$auto, libgtk-4-1, libadwaita-1-0, libwebkitgtk-6.0-4"
 section = "editors"
 priority = "optional"
 extended-description = "A sleek, native multi-tab Markdown and LaTeX editor powered by GTK4 and Libadwaita. Maintained by 7CGPA-Labs."

@@ -2,11 +2,11 @@ use super::markdown::LintError;
 
 pub fn lint_latex(text: &str) -> Vec<LintError> {
     let mut errors = Vec::new();
-    
+
     // Very basic environment matcher
     let mut env_stack: Vec<(String, usize)> = Vec::new();
     let mut i = 0;
-    
+
     while let Some(idx) = text[i..].find("\\begin{") {
         let abs_idx = i + idx;
         if let Some(end_brace) = text[abs_idx..].find('}') {
@@ -17,7 +17,7 @@ pub fn lint_latex(text: &str) -> Vec<LintError> {
             break;
         }
     }
-    
+
     i = 0;
     while let Some(idx) = text[i..].find("\\end{") {
         let abs_idx = i + idx;
@@ -28,7 +28,10 @@ pub fn lint_latex(text: &str) -> Vec<LintError> {
                     errors.push(LintError {
                         start: top_idx,
                         end: abs_idx + end_brace + 1,
-                        message: format!("Mismatched LaTeX environment: expected \\end{{{}}}, found \\end{{{}}}", top_env, env_name),
+                        message: format!(
+                            "Mismatched LaTeX environment: expected \\end{{{}}}, found \\end{{{}}}",
+                            top_env, env_name
+                        ),
                     });
                 }
             } else {
@@ -43,7 +46,7 @@ pub fn lint_latex(text: &str) -> Vec<LintError> {
             break;
         }
     }
-    
+
     for (env, idx) in env_stack {
         errors.push(LintError {
             start: idx,
@@ -51,6 +54,6 @@ pub fn lint_latex(text: &str) -> Vec<LintError> {
             message: format!("Unclosed LaTeX environment: \\begin{{{}}}", env),
         });
     }
-    
+
     errors
 }

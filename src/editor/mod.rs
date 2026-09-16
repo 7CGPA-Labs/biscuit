@@ -1,9 +1,9 @@
 pub mod tags;
 
 use gtk::prelude::*;
+use gtk::Widget;
 use sourceview5::prelude::*;
 use sourceview5::{Buffer, LanguageManager, View};
-use gtk::Widget;
 
 pub struct Editor {
     pub view: View,
@@ -21,7 +21,10 @@ impl Editor {
             .build();
 
         let style_manager = sourceview5::StyleSchemeManager::default();
-        if let Some(scheme) = style_manager.scheme("Adwaita-dark").or_else(|| style_manager.scheme("oblivion")) {
+        if let Some(scheme) = style_manager
+            .scheme("Adwaita-dark")
+            .or_else(|| style_manager.scheme("oblivion"))
+        {
             buffer.set_style_scheme(Some(&scheme));
         }
 
@@ -34,7 +37,7 @@ impl Editor {
             .tab_width(4)
             .css_classes(["editor"])
             .build();
-            
+
         Self { view, buffer }
     }
 

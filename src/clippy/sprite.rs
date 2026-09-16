@@ -1,5 +1,5 @@
-use gtk::prelude::*;
 use gtk::cairo;
+use gtk::prelude::*;
 use gtk::DrawingArea;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -28,34 +28,38 @@ impl ClippySprite {
         widget.set_valign(gtk::Align::End);
         widget.set_margin_end(20);
         widget.set_margin_bottom(20);
-        
+
         let state = Rc::new(RefCell::new(ClippyState::Idle));
         let state_clone = state.clone();
-        
+
         let start_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs_f64();
-            
+
         widget.set_draw_func(move |_, cr, width, height| {
             let current_time = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_secs_f64();
             let elapsed = current_time - start_time;
-            
+
             let st = *state_clone.borrow();
             draw_clippy(cr, width as f64, height as f64, st, elapsed);
         });
-        
+
         widget.add_tick_callback(|widget, _| {
             widget.queue_draw();
             glib::ControlFlow::Continue
         });
 
-        Self { widget, state, start_time }
+        Self {
+            widget,
+            state,
+            start_time,
+        }
     }
-    
+
     pub fn set_state(&self, new_state: ClippyState) {
         *self.state.borrow_mut() = new_state;
     }
@@ -64,21 +68,26 @@ impl ClippySprite {
 fn draw_clippy(cr: &cairo::Context, width: f64, height: f64, state: ClippyState, time: f64) {
     let cx = width / 2.0;
     let cy = height / 2.0;
-    
+
     // Animate bouncing
     let bounce = (time * 5.0).sin() * 5.0;
-    let y = cy + if state == ClippyState::Idle { bounce } else { 0.0 };
-    
+    let y = cy
+        + if state == ClippyState::Idle {
+            bounce
+        } else {
+            0.0
+        };
+
     cr.set_source_rgb(0.8, 0.8, 0.8);
     cr.arc(cx, y, 20.0, 0.0, 2.0 * std::f64::consts::PI);
     cr.fill().unwrap();
-    
+
     // Draw eyes
     cr.set_source_rgb(0.0, 0.0, 0.0);
     cr.arc(cx - 8.0, y - 5.0, 3.0, 0.0, 2.0 * std::f64::consts::PI);
     cr.arc(cx + 8.0, y - 5.0, 3.0, 0.0, 2.0 * std::f64::consts::PI);
     cr.fill().unwrap();
-    
+
     // State-specific accessories
     match state {
         ClippyState::Thinking => {

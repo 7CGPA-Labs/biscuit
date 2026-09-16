@@ -19,10 +19,10 @@ pub fn get_models_dir() -> PathBuf {
 
 pub fn check_and_download_models() {
     let models_dir = get_models_dir();
-    
+
     // Using a blocking client in a dedicated thread is fine for this initialization step
     let client = reqwest::blocking::Client::new();
-    
+
     for (filename, url) in MODELS {
         let model_path = models_dir.join(filename);
         if !model_path.exists() {
@@ -37,7 +37,11 @@ pub fn check_and_download_models() {
                             println!("Successfully downloaded {}", filename);
                         }
                     } else {
-                        eprintln!("Failed to download {}: HTTP {}", filename, response.status());
+                        eprintln!(
+                            "Failed to download {}: HTTP {}",
+                            filename,
+                            response.status()
+                        );
                     }
                 }
                 Err(e) => {

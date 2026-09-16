@@ -7,8 +7,8 @@ use biscuit::linter;
 use biscuit::ui;
 
 use gtk::prelude::*;
-use libadwaita::prelude::*;
 use gtk::Application;
+use libadwaita::prelude::*;
 
 fn build_ui(app: &libadwaita::Application) {
     let window = libadwaita::ApplicationWindow::builder()
@@ -24,7 +24,7 @@ fn build_ui(app: &libadwaita::Application) {
     }));
 
     let toolbar_view = libadwaita::ToolbarView::new();
-    
+
     // Header bar with Hamburger menu
     let header_bar = libadwaita::HeaderBar::new();
     let menu_button = gtk::MenuButton::new();
@@ -51,102 +51,133 @@ fn build_ui(app: &libadwaita::Application) {
     // Status bar
     let status_bar = biscuit::ui::status_bar::StatusBar::new();
     let location_label_clone = status_bar.location_label.clone();
-    
+
     let tab_view_clone = tabs.tab_view.clone();
     let state_clone = state.clone();
-    
-    let create_tab = std::rc::Rc::new(move |file_path: Option<std::path::PathBuf>, content: &str| {
-        let editor = biscuit::editor::Editor::new();
-        editor.buffer.set_text(content);
-        editor.buffer.set_modified(false); // Reset modified flag after initial text load
-        
-        let overlay = gtk::Overlay::new();
-        let scrolled_window = gtk::ScrolledWindow::builder()
-            .hexpand(true)
-            .vexpand(true)
-            .build();
-        scrolled_window.set_child(Some(editor.widget()));
-        overlay.set_child(Some(&scrolled_window));
-        let _clippy = biscuit::clippy::ClippyOverlay::new(&overlay);
-        
-        let preview_scrolled = gtk::ScrolledWindow::builder()
-            .hexpand(true)
-            .vexpand(true)
-            .build();
-        let preview_label = gtk::Label::new(Some("Markdown / LaTeX Preview Area"));
-        preview_scrolled.set_child(Some(&preview_label));
-        
-        let stack = gtk::Stack::new();
-        stack.set_hexpand(true);
-        stack.set_vexpand(true);
-        stack.add_named(&overlay, Some("editor"));
-        stack.add_named(&preview_scrolled, Some("preview"));
-        
-        let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-        toolbar.set_margin_top(4);
-        toolbar.set_margin_bottom(4);
-        toolbar.set_margin_end(6);
-        let preview_toggle = gtk::ToggleButton::builder().label("Preview").halign(gtk::Align::End).hexpand(true).build();
-        toolbar.append(&preview_toggle);
-        
-        let stack_clone = stack.clone();
-        preview_toggle.connect_toggled(move |toggle| {
-            if toggle.is_active() {
-                stack_clone.set_visible_child_name("preview");
+
+    let create_tab = std::rc::Rc::new(
+        move |file_path: Option<std::path::PathBuf>, content: &str| {
+            let editor = biscuit::editor::Editor::new();
+            editor.buffer.set_text(content);
+            editor.buffer.set_modified(false); // Reset modified flag after initial text load
+
+            let overlay = gtk::Overlay::new();
+            let scrolled_window = gtk::ScrolledWindow::builder()
+                .hexpand(true)
+                .vexpand(true)
+                .build();
+            scrolled_window.set_child(Some(editor.widget()));
+            overlay.set_child(Some(&scrolled_window));
+            let _clippy = biscuit::clippy::ClippyOverlay::new(&overlay);
+
+            let preview_scrolled = gtk::ScrolledWindow::builder()
+                .hexpand(true)
+                .vexpand(true)
+                .build();
+
+            let web_view_rc = std::rc::Rc::new(biscuit::preview::WebView::new());
+            preview_scrolled.set_child(Some(web_view_rc.get_widget()));
+
+            // Initial render
+            let text = editor.buffer.text(
+                &editor.buffer.start_iter(),
+                &editor.buffer.end_iter(),
+                false,
+            );
+            let html = biscuit::preview::render_markdown(text.as_str());
+            web_view_rc.load_html(&html);
+
+            let stack = gtk::Stack::new();
+            stack.set_hexpand(true);
+            stack.set_vexpand(true);
+            stack.add_named(&overlay, Some("editor"));
+            stack.add_named(&preview_scrolled, Some("preview"));
+
+            let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+            toolbar.set_margin_top(4);
+            toolbar.set_margin_bottom(4);
+            toolbar.set_margin_end(6);
+            let preview_toggle = gtk::ToggleButton::builder()
+                .label("Preview")
+                .halign(gtk::Align::End)
+                .hexpand(true)
+                .build();
+            toolbar.append(&preview_toggle);
+
+            let stack_clone = stack.clone();
+            preview_toggle.connect_toggled(move |toggle| {
+                if toggle.is_active() {
+                    stack_clone.set_visible_child_name("preview");
+                } else {
+                    stack_clone.set_visible_child_name("editor");
+                }
+            });
+
+            let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            vbox.append(&toolbar);
+            vbox.append(&stack);
+
+            let page = tab_view_clone.append(&vbox);
+            let title = if let Some(path) = &file_path {
+                path.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
             } else {
-                stack_clone.set_visible_child_name("editor");
-            }
-        });
-        
-        let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        vbox.append(&toolbar);
-        vbox.append(&stack);
-        
-        let page = tab_view_clone.append(&vbox);
-        let title = if let Some(path) = &file_path {
-            path.file_name().unwrap_or_default().to_string_lossy().into_owned()
-        } else {
-            "Untitled".to_string()
-        };
-        page.set_title(&title);
-        
-        let base_title = std::rc::Rc::new(std::cell::RefCell::new(title));
-        
-        // Wire up modified state for asterisk in title
-        let page_clone_for_mod = page.clone();
-        let base_title_clone = base_title.clone();
-        editor.buffer.connect_modified_changed(move |buffer| {
-            let t = base_title_clone.borrow();
-            if buffer.is_modified() {
-                page_clone_for_mod.set_title(&format!("{} *", t));
-            } else {
-                page_clone_for_mod.set_title(&t);
-            }
-        });
-        
-        // Wire up status bar
-        let loc_label = location_label_clone.clone();
-        editor.buffer.connect_cursor_position_notify(move |buffer| {
-            if let Some(mark) = buffer.mark("insert") {
-                let iter = buffer.iter_at_mark(&mark);
-                let line = iter.line() + 1;
-                let col = iter.line_offset() + 1;
-                loc_label.set_label(&format!("Ln {}, Col {}", line, col));
-            }
-        });
-        
-        state_clone.borrow_mut().open_tabs.insert(page.clone(), ui::actions::TabState {
-            file_path,
-            buffer: editor.buffer.clone(),
-            base_title,
-        });
-        
-        tab_view_clone.set_selected_page(&page);
-    });
+                "Untitled".to_string()
+            };
+            page.set_title(&title);
+
+            let base_title = std::rc::Rc::new(std::cell::RefCell::new(title));
+
+            // Wire up modified state for asterisk in title
+            let page_clone_for_mod = page.clone();
+            let base_title_clone = base_title.clone();
+            editor.buffer.connect_modified_changed(move |buffer| {
+                let t = base_title_clone.borrow();
+                if buffer.is_modified() {
+                    page_clone_for_mod.set_title(&format!("{} *", t));
+                } else {
+                    page_clone_for_mod.set_title(&t);
+                }
+            });
+
+            // Wire up status bar
+            let loc_label = location_label_clone.clone();
+            editor.buffer.connect_cursor_position_notify(move |buffer| {
+                if let Some(mark) = buffer.mark("insert") {
+                    let iter = buffer.iter_at_mark(&mark);
+                    let line = iter.line() + 1;
+                    let col = iter.line_offset() + 1;
+                    loc_label.set_label(&format!("Ln {}, Col {}", line, col));
+                }
+            });
+
+            // Wire up live preview updates
+            let web_view_for_update = web_view_rc.clone();
+            editor.buffer.connect_changed(move |buffer| {
+                let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
+                let html = biscuit::preview::render_markdown(text.as_str());
+                web_view_for_update.load_html(&html);
+            });
+
+            state_clone.borrow_mut().open_tabs.insert(
+                page.clone(),
+                ui::actions::TabState {
+                    file_path,
+                    buffer: editor.buffer.clone(),
+                    base_title,
+                    web_view: web_view_rc.clone(),
+                },
+            );
+
+            tab_view_clone.set_selected_page(&page);
+        },
+    );
 
     // Create the initial empty tab
     create_tab(None, "");
-    
+
     // Wire up status bar location updates when switching tabs
     let state_clone_for_switch = state.clone();
     let location_label_for_switch = status_bar.location_label.clone();
@@ -164,13 +195,13 @@ fn build_ui(app: &libadwaita::Application) {
     });
 
     main_vbox.append(&status_bar.widget);
-    
+
     toolbar_view.set_content(Some(&main_vbox));
     window.set_content(Some(&toolbar_view));
-    
+
     // Actions setup
     ui::actions::setup_actions(&app, &window, state.clone(), &tabs, create_tab.clone());
-    
+
     window.present();
 }
 
@@ -188,7 +219,7 @@ fn main() {
         let _ = libadwaita::init();
         let manager = libadwaita::StyleManager::default();
         manager.set_color_scheme(libadwaita::ColorScheme::PreferDark);
-        
+
         let css = "
             window.popup {
                 background-color: transparent;
@@ -244,7 +275,7 @@ fn main() {
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
     });
-    
+
     app.connect_activate(build_ui);
     app.run();
 }

@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
-use std::fs;
 use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 pub mod pandoc;
 pub mod typst;
@@ -11,9 +11,9 @@ pub fn get_embedded_binary(name: &str) -> PathBuf {
     if !temp_dir.exists() {
         fs::create_dir_all(&temp_dir).unwrap();
     }
-    
+
     let binary_path = temp_dir.join(name);
-    
+
     // In a full implementation, we'd use include_bytes! from OUT_DIR here
     // For this mockup, we just assume the path exists or touch it
     if !binary_path.exists() {
@@ -27,6 +27,6 @@ pub fn get_embedded_binary(name: &str) -> PathBuf {
             fs::set_permissions(&binary_path, perms).unwrap();
         }
     }
-    
+
     binary_path
 }
