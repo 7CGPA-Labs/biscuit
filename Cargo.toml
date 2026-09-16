@@ -2,7 +2,8 @@
 name = "biscuit"
 version = "0.1.0"
 edition = "2021"
-
+description = "A sleek, native multi-tab Markdown and LaTeX editor"
+license = "MIT"
 [dependencies]
 gtk = { version = "0.8", package = "gtk4", features = ["v4_12"] }
 libadwaita = { version = "0.6", features = ["v1_4"] }

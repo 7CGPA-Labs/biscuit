@@ -74,29 +74,7 @@ fn download_and_extract(url: &str, out_path: &PathBuf, binary_name: &str, archiv
 fn download_katex(out_dir: &PathBuf) {
     let katex_dir = out_dir.join("katex");
     let version_file = out_dir.join("katex_version.txt");
-
-    // Check latest release
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("biscuit-build")
-        .build()
-        .unwrap();
-    let resp = match client
-        .get("https://api.github.com/repos/KaTeX/KaTeX/releases/latest")
-        .send()
-    {
-        Ok(r) if r.status().is_success() => r,
-        _ => return, // Silently fail and use existing if offline
-    };
-
-    let json: serde_json::Value = match resp.json() {
-        Ok(j) => j,
-        Err(_) => return,
-    };
-
-    let tag_name = match json["tag_name"].as_str() {
-        Some(t) => t,
-        None => return,
-    };
+    let tag_name = "v0.16.11"; // hardcoded version
 
     if version_file.exists() && katex_dir.exists() {
         if let Ok(cached) = fs::read_to_string(&version_file) {
@@ -106,14 +84,26 @@ fn download_katex(out_dir: &PathBuf) {
         }
     }
 
-    // Need to download new version
     let tarball_url = format!(
         "https://github.com/KaTeX/KaTeX/releases/download/{}/katex.tar.gz",
         tag_name
     );
+
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("biscuit-build")
+        .build()
+        .unwrap();
+
     let bytes = match client.get(&tarball_url).send() {
         Ok(r) if r.status().is_success() => r.bytes().unwrap(),
-        _ => return,
+        _ => {
+            println!("cargo:warning=Failed to download KaTeX. Creating dummy files.");
+            fs::create_dir_all(katex_dir.join("katex/contrib")).unwrap();
+            fs::write(katex_dir.join("katex/katex.min.css"), b"").unwrap();
+            fs::write(katex_dir.join("katex/katex.min.js"), b"").unwrap();
+            fs::write(katex_dir.join("katex/contrib/auto-render.min.js"), b"").unwrap();
+            return;
+        }
     };
 
     let temp_archive = out_dir.join("katex.tar.gz");
