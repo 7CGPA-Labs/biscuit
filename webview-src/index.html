@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Biscuit Preview</title>
+    <!-- Include Highlight.js CSS for Markdown code blocks -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <style>
+      :root {
+        --bg-color: #1e1e2e;
+        --text-color: #cdd6f4;
+        --link-color: #89b4fa;
+        --code-bg: #181825;
+      }
+      body {
+        background-color: var(--bg-color);
+        color: var(--text-color);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.6;
+        padding: 2rem;
+        margin: 0;
+      }
+      a {
+        color: var(--link-color);
+      }
+      pre {
+        background-color: var(--code-bg);
+        padding: 1rem;
+        border-radius: 8px;
+        overflow-x: auto;
+      }
+      code {
+        font-family: 'Fira Code', 'JetBrains Mono', monospace;
+      }
+      #app {
+        max-width: 800px;
+        margin: 0 auto;
+      }
+      /* Latex.js specifics */
+      .latex-container {
+        background: white;
+        color: black;
+        padding: 2rem;
+        border-radius: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script>
+      window.require = function(mod) {
+        console.warn("Ignored dynamic require for: " + mod);
+        if (mod === 'path') {
+          return {
+            resolve: function() { return ""; },
+            join: function() { return ""; },
+            dirname: function() { return ""; },
+            basename: function() { return ""; },
+            extname: function() { return ""; }
+          };
+        }
+        if (mod === 'fs') {
+          return {
+            readFileSync: function() { return '{"version":"3.2.2"}'; },
+            existsSync: function() { return false; }
+          };
+        }
+        if (mod === '') {
+          return { version: "3.2.2" };
+        }
+        return {};
+      };
+      window.__dirname = "/";
+    </script>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>

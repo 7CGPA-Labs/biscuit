@@ -71,106 +71,18 @@ fn download_and_extract(url: &str, out_path: &PathBuf, binary_name: &str, archiv
     fs::remove_file(temp_archive).unwrap();
 }
 
-fn download_katex(out_dir: &PathBuf) {
-    let katex_dir = out_dir.join("katex");
-    let version_file = out_dir.join("katex_version.txt");
-    let tag_name = "v0.16.11"; // hardcoded version
-
-    if version_file.exists() && katex_dir.exists() {
-        if let Ok(cached) = fs::read_to_string(&version_file) {
-            if cached == tag_name {
-                return; // Already up to date
-            }
-        }
-    }
-
-    let tarball_url = format!(
-        "https://github.com/KaTeX/KaTeX/releases/download/{}/katex.tar.gz",
-        tag_name
-    );
-
-    let client = reqwest::blocking::Client::builder()
-        .user_agent("biscuit-build")
-        .build()
-        .unwrap();
-
-    let bytes = match client.get(&tarball_url).send() {
-        Ok(r) if r.status().is_success() => r.bytes().unwrap(),
-        _ => {
-            println!("cargo:warning=Failed to download KaTeX. Creating dummy files.");
-            fs::create_dir_all(katex_dir.join("katex/contrib")).unwrap();
-            fs::write(katex_dir.join("katex/katex.min.css"), b"").unwrap();
-            fs::write(katex_dir.join("katex/katex.min.js"), b"").unwrap();
-            fs::write(katex_dir.join("katex/contrib/auto-render.min.js"), b"").unwrap();
-            return;
-        }
-    };
-
-    let temp_archive = out_dir.join("katex.tar.gz");
-    fs::write(&temp_archive, &bytes).unwrap();
-
-    if katex_dir.exists() {
-        fs::remove_dir_all(&katex_dir).unwrap();
-    }
-    fs::create_dir_all(&katex_dir).unwrap();
-
-    let status = Command::new("tar")
-        .args(&[
-            "xf",
-            temp_archive.to_str().unwrap(),
-            "-C",
-            katex_dir.to_str().unwrap(),
-        ])
-        .status()
-        .expect("Failed to run tar");
-
-    assert!(status.success(), "Tar extraction failed for KaTeX");
-
-    fs::remove_file(temp_archive).unwrap();
-    fs::write(version_file, tag_name).unwrap();
-}
-
-fn build_latex_renderer() {
-    let renderer_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("latex_renderer");
-    if !renderer_dir.exists() {
-        return;
-    }
-
-    // Run npm install
-    let status = Command::new("npm")
-        .current_dir(&renderer_dir)
-        .args(&["install"])
-        .status()
-        .expect("Failed to run npm install");
-    assert!(status.success(), "npm install failed in latex_renderer");
-
-    // Run npm run build
-    let status = Command::new("npm")
-        .current_dir(&renderer_dir)
-        .args(&["run", "build"])
-        .status()
-        .expect("Failed to run npm run build");
-    assert!(status.success(), "npm run build failed in latex_renderer");
-
-    // Tar the dist folder to OUT_DIR
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let tar_path = out_dir.join("latex_renderer.tar.gz");
-    let status = Command::new("tar")
-        .current_dir(renderer_dir.join("dist"))
-        .args(&["-czf", tar_path.to_str().unwrap(), "."])
-        .status()
-        .expect("Failed to create tar archive");
-    assert!(status.success(), "Failed to create latex_renderer.tar.gz");
-}
-
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=latex_renderer/src/index.js");
+    println!("cargo:rerun-if-changed=webview-src/package.json");
+    println!("cargo:rerun-if-changed=webview-src/index.html");
+    println!("cargo:rerun-if-changed=webview-src/main.js");
+    println!("cargo:rerun-if-changed=webview-src/vite.config.js");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     let pandoc_path = out_dir.join("pandoc");
     let typst_path = out_dir.join("typst");
+    let tectonic_path = out_dir.join("tectonic");
 
     download_and_extract(
         "https://github.com/jgm/pandoc/releases/download/3.1.13/pandoc-3.1.13-linux-amd64.tar.gz",
@@ -186,6 +98,50 @@ fn main() {
         "tar.xz"
     );
 
-    download_katex(&out_dir);
-    build_latex_renderer();
+    download_and_extract(
+        "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%400.15.0/tectonic-0.15.0-x86_64-unknown-linux-musl.tar.gz",
+        &tectonic_path,
+        "tectonic",
+        "tar.gz",
+    );
+
+    // Build webview-src
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+    let webview_src = PathBuf::from(&manifest_dir).join("webview-src");
+    
+    // Fallback to searching node locally or system wide
+    let npm_cmd = "npm";
+    
+    // We add the local nvm path just in case we are in an environment without npm globally in PATH
+    let path_env = std::env::var("PATH").unwrap_or_default();
+    let nvm_path = "/home/gagan/.config/nvm/versions/node/v20.20.2/bin";
+    let new_path = format!("{}:{}", nvm_path, path_env);
+
+    println!("cargo:warning=Building webview frontend...");
+    
+    let install_status = Command::new(npm_cmd)
+        .arg("install")
+        .current_dir(&webview_src)
+        .env("PATH", &new_path)
+        .status()
+        .expect("Failed to run npm install");
+    
+    assert!(install_status.success(), "npm install failed");
+
+    let build_status = Command::new(npm_cmd)
+        .arg("run")
+        .arg("build")
+        .current_dir(&webview_src)
+        .env("PATH", &new_path)
+        .status()
+        .expect("Failed to run npm run build");
+        
+    assert!(build_status.success(), "npm run build failed");
+
+    // Copy the dist/index.html to OUT_DIR
+    let dist_html = webview_src.join("dist").join("index.html");
+    let out_html = out_dir.join("webview_index.html");
+    std::fs::copy(dist_html, out_html).expect("Failed to copy built index.html to OUT_DIR");
+
+    println!("cargo:rerun-if-changed=webview-src");
 }

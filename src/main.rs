@@ -94,8 +94,8 @@ fn build_ui(app: &libadwaita::Application) {
                 .vexpand(true)
                 .build();
 
-            let web_view_rc = std::rc::Rc::new(biscuit::preview::WebView::new());
-            preview_scrolled.set_child(Some(web_view_rc.get_widget()));
+            let preview_rc = std::rc::Rc::new(biscuit::preview::PdfPreview::new());
+            preview_scrolled.set_child(Some(preview_rc.get_widget()));
 
             let _text = editor.buffer.text(
                 &editor.buffer.start_iter(),
@@ -114,10 +114,8 @@ fn build_ui(app: &libadwaita::Application) {
             // Initial render removed in favor of reload_preview
             
             let preview_container = gtk::Overlay::new();
-            let web_view_container = gtk::ScrolledWindow::builder()
-                .hexpand(true)
-                .vexpand(true)
-                .build();
+            let preview = biscuit::preview::PdfPreview::new();
+            
             let spinner = gtk::Spinner::builder()
                 .halign(gtk::Align::Center)
                 .valign(gtk::Align::Center)
@@ -133,7 +131,7 @@ fn build_ui(app: &libadwaita::Application) {
             warning_bar.add_child(&warning_label);
             warning_bar.set_revealed(false);
             
-            preview_container.set_child(Some(&web_view_container));
+            preview_container.set_child(Some(preview.get_widget()));
             preview_container.add_overlay(&spinner);
             preview_container.add_overlay(&warning_bar);
 
@@ -285,7 +283,7 @@ fn build_ui(app: &libadwaita::Application) {
                 }
             });
 
-            let current_web_view = std::rc::Rc::new(std::cell::RefCell::new(None));
+            let current_preview = std::rc::Rc::new(std::cell::RefCell::new(None));
             
             // Wire up warning bar close button
             let warning_bar_close_clone = warning_bar.clone();
@@ -301,8 +299,8 @@ fn build_ui(app: &libadwaita::Application) {
                     file_path,
                     buffer: editor.buffer.clone(),
                     base_title,
-                    web_view_container,
-                    current_web_view,
+                    preview_container,
+                    current_preview,
                     is_latex,
                     preview_stale,
                     spinner,
@@ -357,23 +355,8 @@ fn main() {
         ai::downloader::check_and_download_models();
     });
 
-    
-    // Extract latex_renderer
-    let cache_dir = dirs::cache_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
-    let biscuit_cache = cache_dir.join("biscuit");
-    std::fs::create_dir_all(&biscuit_cache).unwrap();
-    let latex_dir = biscuit_cache.join("latex_renderer");
-    if !latex_dir.exists() {
-        let tarball_path = biscuit_cache.join("latex_renderer.tar.gz");
-        std::fs::write(&tarball_path, biscuit::preview::LATEX_RENDERER_TGZ).unwrap();
-        std::fs::create_dir_all(&latex_dir).unwrap();
-        std::process::Command::new("tar")
-            .args(&["xzf", tarball_path.to_str().unwrap(), "-C", latex_dir.to_str().unwrap()])
-            .status()
-            .unwrap();
-        let _ = std::fs::remove_file(tarball_path);
-    }
-
+    // Disable the WebKitGTK sandbox to prevent bwrap permission errors in restricted environments.
+    std::env::set_var("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
 
     let app = libadwaita::Application::builder()
         .application_id("com.biscuit.App")

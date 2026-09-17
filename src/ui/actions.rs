@@ -17,8 +17,8 @@ pub struct TabState {
     pub file_path: Option<PathBuf>,
     pub buffer: sourceview5::Buffer,
     pub base_title: Rc<RefCell<String>>,
-    pub web_view_container: gtk::ScrolledWindow,
-    pub current_web_view: Rc<RefCell<Option<crate::preview::WebView>>>,
+    pub preview_container: gtk::Overlay,
+    pub current_preview: Rc<RefCell<Option<crate::preview::PdfPreview>>>,
     pub is_latex: Rc<RefCell<bool>>,
     pub preview_stale: Rc<RefCell<bool>>,
     pub spinner: gtk::Spinner,
@@ -37,35 +37,21 @@ pub fn reload_preview(ts: &TabState, zoom_level: f64) {
     let text = ts.buffer.text(&start, &end, false);
     
     let is_ltx = *ts.is_latex.borrow();
-    let html = crate::preview::render_preview(text.as_str(), is_ltx);
-    let base_uri = if is_ltx {
-        let cache_dir = dirs::cache_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
-        let latexjs_dir = cache_dir.join("biscuit").join("latexjs-0.12.6");
-        Some(format!("file://{}/", latexjs_dir.to_str().unwrap()))
+
+    let wv = if let Some(old_wv) = ts.current_preview.borrow_mut().take() {
+        old_wv
     } else {
-        None
+        let new_wv = crate::preview::PdfPreview::new();
+        ts.preview_container.set_child(Some(new_wv.get_widget()));
+        new_wv
     };
-
-    if let Some(old_wv) = ts.current_web_view.borrow_mut().take() {
-        if let Some(_parent) = old_wv.get_widget().parent() {
-            // Need to use ScrolledWindow's set_child to replace instead of parent.remove since parent might be a viewport
-            ts.web_view_container.set_child(gtk::Widget::NONE);
-        }
-    }
-
-    let new_wv = crate::preview::WebView::new();
-    new_wv.set_zoom_level(zoom_level);
-    new_wv.load_html(&html, base_uri.as_deref());
     
-    ts.web_view_container.set_child(Some(new_wv.get_widget()));
-    *ts.current_web_view.borrow_mut() = Some(new_wv);
+    wv.set_zoom_level(zoom_level);
+    wv.load_content(&text, is_ltx);
     
-    ts.spinner.start();
-    let spinner_clone = ts.spinner.clone();
-    glib::timeout_add_local(std::time::Duration::from_millis(1500), move || {
-        spinner_clone.stop();
-        glib::ControlFlow::Break
-    });
+    *ts.current_preview.borrow_mut() = Some(wv);
+    
+
 
     *ts.preview_stale.borrow_mut() = false;
     ts.warning_bar.set_revealed(false);
@@ -242,13 +228,69 @@ pub fn setup_actions(
     app.add_action(&action_save_as);
     app.set_accels_for_action("app.save_as", &["<Ctrl><Shift>s"]);
 
-    // Export actions (dummy for now)
+    // Export actions
     let action_export_pdf = gio::SimpleAction::new("export_pdf", None);
-    action_export_pdf.connect_activate(|_, _| println!("Export to PDF triggered"));
+    let state_clone = state.clone();
+    let window_clone = window.clone();
+    let tab_view = tab_bar.tab_view.clone();
+    action_export_pdf.connect_activate(move |_, _| {
+        if let Some(page) = tab_view.selected_page() {
+            let s = state_clone.borrow();
+            if let Some(ts) = s.open_tabs.get(&page) {
+                let is_ltx = *ts.is_latex.borrow();
+                let start = ts.buffer.start_iter();
+                let end = ts.buffer.end_iter();
+                let text = ts.buffer.text(&start, &end, false).to_string();
+                
+                let dialog = FileDialog::new();
+                let filter = gtk::FileFilter::new();
+                filter.add_pattern("*.pdf");
+                filter.set_name(Some("PDF Documents"));
+                let filters = gio::ListStore::new::<gtk::FileFilter>();
+                filters.append(&filter);
+                dialog.set_filters(Some(&filters));
+
+                dialog.save(Some(&window_clone), gio::Cancellable::NONE, move |result| {
+                    if let Ok(file) = result {
+                        let path = file.path().expect("Expected a path");
+                        crate::preview::export_document(&text, is_ltx, &path, "pdf");
+                    }
+                });
+            }
+        }
+    });
     app.add_action(&action_export_pdf);
 
     let action_export_docx = gio::SimpleAction::new("export_docx", None);
-    action_export_docx.connect_activate(|_, _| println!("Export to DOCX triggered"));
+    let state_clone = state.clone();
+    let window_clone = window.clone();
+    let tab_view = tab_bar.tab_view.clone();
+    action_export_docx.connect_activate(move |_, _| {
+        if let Some(page) = tab_view.selected_page() {
+            let s = state_clone.borrow();
+            if let Some(ts) = s.open_tabs.get(&page) {
+                let is_ltx = *ts.is_latex.borrow();
+                let start = ts.buffer.start_iter();
+                let end = ts.buffer.end_iter();
+                let text = ts.buffer.text(&start, &end, false).to_string();
+                
+                let dialog = FileDialog::new();
+                let filter = gtk::FileFilter::new();
+                filter.add_pattern("*.docx");
+                filter.set_name(Some("Word Documents"));
+                let filters = gio::ListStore::new::<gtk::FileFilter>();
+                filters.append(&filter);
+                dialog.set_filters(Some(&filters));
+
+                dialog.save(Some(&window_clone), gio::Cancellable::NONE, move |result| {
+                    if let Ok(file) = result {
+                        let path = file.path().expect("Expected a path");
+                        crate::preview::export_document(&text, is_ltx, &path, "docx");
+                    }
+                });
+            }
+        }
+    });
     app.add_action(&action_export_docx);
 
     let action_prefs = gio::SimpleAction::new("preferences", None);
@@ -279,7 +321,7 @@ pub fn setup_actions(
         s.css_provider.load_from_string(&css);
         
         for ts in s.open_tabs.values() {
-            if let Some(wv) = ts.current_web_view.borrow().as_ref() {
+            if let Some(wv) = ts.current_preview.borrow().as_ref() {
                 wv.set_zoom_level(s.zoom_level);
             }
         }
@@ -298,7 +340,7 @@ pub fn setup_actions(
         s.css_provider.load_from_string(&css);
         
         for ts in s.open_tabs.values() {
-            if let Some(wv) = ts.current_web_view.borrow().as_ref() {
+            if let Some(wv) = ts.current_preview.borrow().as_ref() {
                 wv.set_zoom_level(s.zoom_level);
             }
         }

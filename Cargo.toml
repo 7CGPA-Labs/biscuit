@@ -19,6 +19,8 @@ cairo-rs = "0.19"
 glib = "0.19"
 gdk = { version = "0.8", package = "gdk4" }
 dirs = "7.0.0"
+pandoc = "0.8.11"
+webkit6 = "0.3"
 
 [build-dependencies]
 reqwest = { version = "0.12", features = ["blocking", "json"] }
