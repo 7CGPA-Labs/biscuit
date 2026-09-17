@@ -1,0 +1,11 @@
+{
+  "name": "latex_renderer",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "mkdir -p dist && cp -r node_modules/latex.js/dist/* dist/ && cp src/index.js dist/"
+  },
+  "dependencies": {
+    "jsdom": "^29.1.1",
+    "latex.js": "^0.12.6"
+  }
+}

@@ -1,0 +1,22 @@
+---
+title: "LaTeX and YAML Test"
+author: "Gagan"
+tags: [latex, yaml]
+---
+\documentclass{article}
+\usepackage{amsmath}
+
+\begin{document}
+\section{Testing LaTeX with YAML}
+
+This file contains YAML frontmatter at the top before the \documentclass.
+
+\subsection{Maxwell's Equations}
+\begin{align}
+\nabla \cdot \mathbf{E} &= \frac{\rho}{\varepsilon_0} \\
+\nabla \cdot \mathbf{B} &= 0 \\
+\nabla \times \mathbf{E} &= -\frac{\partial \mathbf{B}}{\partial t} \\
+\nabla \times \mathbf{B} &= \mu_0 \mathbf{J} + \mu_0 \varepsilon_0 \frac{\partial \mathbf{E}}{\partial t}
+\end{align}
+
+\end{document}

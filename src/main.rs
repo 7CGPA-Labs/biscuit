@@ -1,14 +1,11 @@
+#![allow(deprecated)]
 use biscuit::ai;
-use biscuit::clippy;
-use biscuit::editor;
-use biscuit::export;
-use biscuit::linter;
 
 use biscuit::ui;
 
 use gtk::prelude::*;
-use gtk::Application;
 use libadwaita::prelude::*;
+use sourceview5::prelude::*;
 
 fn build_ui(app: &libadwaita::Application) {
     let window = libadwaita::ApplicationWindow::builder()
@@ -18,9 +15,19 @@ fn build_ui(app: &libadwaita::Application) {
         .default_height(768)
         .build();
 
+    let zoom_provider = gtk::CssProvider::new();
+    zoom_provider.load_from_string("textview { font-size: 1.0em; }");
+    gtk::style_context_add_provider_for_display(
+        &gtk::gdk::Display::default().expect("Could not connect to a display."),
+        &zoom_provider,
+        gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+    );
+
     // App state
     let state = std::rc::Rc::new(std::cell::RefCell::new(ui::actions::AppState {
         open_tabs: std::collections::HashMap::new(),
+        css_provider: zoom_provider,
+        zoom_level: 1.0,
     }));
 
     let toolbar_view = libadwaita::ToolbarView::new();
@@ -54,10 +61,22 @@ fn build_ui(app: &libadwaita::Application) {
 
     let tab_view_clone = tabs.tab_view.clone();
     let state_clone = state.clone();
+    let window_clone_for_tab = window.clone();
+    let type_label_clone = status_bar.type_label.clone();
 
     let create_tab = std::rc::Rc::new(
         move |file_path: Option<std::path::PathBuf>, content: &str| {
             let editor = biscuit::editor::Editor::new();
+            let style_manager = sourceview5::StyleSchemeManager::default();
+            let libadwaita_manager = libadwaita::StyleManager::default();
+            let scheme = if libadwaita_manager.is_dark() {
+                style_manager.scheme("Adwaita-dark").or_else(|| style_manager.scheme("oblivion"))
+            } else {
+                style_manager.scheme("Adwaita").or_else(|| style_manager.scheme("classic"))
+            };
+            if let Some(scheme) = scheme {
+                editor.buffer.set_style_scheme(Some(&scheme));
+            }
             editor.buffer.set_text(content);
             editor.buffer.set_modified(false); // Reset modified flag after initial text load
 
@@ -78,40 +97,71 @@ fn build_ui(app: &libadwaita::Application) {
             let web_view_rc = std::rc::Rc::new(biscuit::preview::WebView::new());
             preview_scrolled.set_child(Some(web_view_rc.get_widget()));
 
-            // Initial render
-            let text = editor.buffer.text(
+            let _text = editor.buffer.text(
                 &editor.buffer.start_iter(),
                 &editor.buffer.end_iter(),
                 false,
             );
-            let html = biscuit::preview::render_markdown(text.as_str());
-            web_view_rc.load_html(&html);
+            let is_latex = std::rc::Rc::new(std::cell::RefCell::new(
+                file_path.as_ref().map_or(false, |p| p.extension().map_or(false, |ext| ext == "tex"))
+            ));
+            
+            if *is_latex.borrow() {
+                type_label_clone.set_label("LaTeX");
+            } else {
+                type_label_clone.set_label("Markdown");
+            }
+            // Initial render removed in favor of reload_preview
+            
+            let preview_container = gtk::Overlay::new();
+            let web_view_container = gtk::ScrolledWindow::builder()
+                .hexpand(true)
+                .vexpand(true)
+                .build();
+            let spinner = gtk::Spinner::builder()
+                .halign(gtk::Align::Center)
+                .valign(gtk::Align::Center)
+                .width_request(48)
+                .height_request(48)
+                .build();
+            let warning_bar = gtk::InfoBar::builder()
+                .message_type(gtk::MessageType::Warning)
+                .show_close_button(true)
+                .valign(gtk::Align::Start)
+                .build();
+            let warning_label = gtk::Label::new(Some("File changes detected. Click Reload to see the latest changes."));
+            warning_bar.add_child(&warning_label);
+            warning_bar.set_revealed(false);
+            
+            preview_container.set_child(Some(&web_view_container));
+            preview_container.add_overlay(&spinner);
+            preview_container.add_overlay(&warning_bar);
 
             let stack = gtk::Stack::new();
             stack.set_hexpand(true);
             stack.set_vexpand(true);
             stack.add_named(&overlay, Some("editor"));
-            stack.add_named(&preview_scrolled, Some("preview"));
+            stack.add_named(&preview_container, Some("preview"));
 
             let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 4);
             toolbar.set_margin_top(4);
             toolbar.set_margin_bottom(4);
             toolbar.set_margin_end(6);
+
+            let reload_preview_btn = gtk::Button::builder()
+                .icon_name("view-refresh-symbolic")
+                .tooltip_text("Reload Preview")
+                .valign(gtk::Align::Center)
+                .visible(false) // Only visible when preview is active
+                .build();
+            toolbar.append(&reload_preview_btn);
+
             let preview_toggle = gtk::ToggleButton::builder()
                 .label("Preview")
                 .halign(gtk::Align::End)
                 .hexpand(true)
                 .build();
             toolbar.append(&preview_toggle);
-
-            let stack_clone = stack.clone();
-            preview_toggle.connect_toggled(move |toggle| {
-                if toggle.is_active() {
-                    stack_clone.set_visible_child_name("preview");
-                } else {
-                    stack_clone.set_visible_child_name("editor");
-                }
-            });
 
             let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
             vbox.append(&toolbar);
@@ -129,6 +179,66 @@ fn build_ui(app: &libadwaita::Application) {
             page.set_title(&title);
 
             let base_title = std::rc::Rc::new(std::cell::RefCell::new(title));
+
+            let stack_clone = stack.clone();
+            let reload_btn_clone_for_toggle = reload_preview_btn.clone();
+            let window_for_dialog = window_clone_for_tab.clone();
+            let state_clone_for_toggle = state_clone.clone();
+            let page_clone_for_toggle = page.clone();
+            let buffer_for_toggle = editor.buffer.clone();
+            
+            preview_toggle.connect_toggled(move |toggle| {
+                if toggle.is_active() {
+                    if buffer_for_toggle.is_modified() {
+                        let dialog = gtk::AlertDialog::builder()
+                            .message("You have unsaved changes. Do you want to save before previewing?")
+                            .buttons(["Cancel", "Preview Without Saving", "Save and Preview"])
+                            .default_button(2)
+                            .cancel_button(0)
+                            .build();
+
+                        let toggle_clone_for_dialog = toggle.clone();
+                        let stack_clone_for_dialog = stack_clone.clone();
+                        let reload_btn_clone_for_dialog = reload_btn_clone_for_toggle.clone();
+                        let state_clone_for_dialog = state_clone_for_toggle.clone();
+                        let page_clone_for_dialog = page_clone_for_toggle.clone();
+                        let window_for_action = window_for_dialog.clone();
+                        
+                        dialog.choose(Some(&window_for_dialog), gtk::gio::Cancellable::NONE, move |res| {
+                            if let Ok(response) = res {
+                                if response == 0 {
+                                    toggle_clone_for_dialog.set_active(false);
+                                } else {
+                                    stack_clone_for_dialog.set_visible_child_name("preview");
+                                    reload_btn_clone_for_dialog.set_visible(true);
+                                    if response == 2 {
+                                        let action = window_for_action.application().unwrap().lookup_action("save").unwrap();
+                                        action.activate(None);
+                                    } else if response == 1 {
+                                        let state = state_clone_for_dialog.borrow();
+                                        if let Some(ts) = state.open_tabs.get(&page_clone_for_dialog) {
+                                            ui::actions::reload_preview(ts, state.zoom_level);
+                                        }
+                                    }
+                                }
+                            } else {
+                                toggle_clone_for_dialog.set_active(false);
+                            }
+                        });
+                    } else {
+                        stack_clone.set_visible_child_name("preview");
+                        reload_btn_clone_for_toggle.set_visible(true);
+                        let state = state_clone_for_toggle.borrow();
+                        if let Some(ts) = state.open_tabs.get(&page_clone_for_toggle) {
+                            ui::actions::reload_preview(ts, state.zoom_level);
+                        }
+                    }
+                } else {
+                    stack_clone.set_visible_child_name("editor");
+                    reload_btn_clone_for_toggle.set_visible(false);
+                }
+            });
+
 
             // Wire up modified state for asterisk in title
             let page_clone_for_mod = page.clone();
@@ -153,12 +263,36 @@ fn build_ui(app: &libadwaita::Application) {
                 }
             });
 
-            // Wire up live preview updates
-            let web_view_for_update = web_view_rc.clone();
-            editor.buffer.connect_changed(move |buffer| {
-                let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
-                let html = biscuit::preview::render_markdown(text.as_str());
-                web_view_for_update.load_html(&html);
+            // Wire up warning bar for stale preview on change
+            let warning_bar_clone = warning_bar.clone();
+            let preview_toggle_clone_for_warning = preview_toggle.clone();
+            let preview_stale = std::rc::Rc::new(std::cell::RefCell::new(false));
+            let preview_stale_clone = preview_stale.clone();
+            editor.buffer.connect_changed(move |_| {
+                *preview_stale_clone.borrow_mut() = true;
+                if preview_toggle_clone_for_warning.is_active() {
+                    warning_bar_clone.set_revealed(true);
+                }
+            });
+
+            // Wire up reload button
+            let state_clone_for_reload = state_clone.clone();
+            let page_clone_for_reload = page.clone();
+            reload_preview_btn.connect_clicked(move |_| {
+                let state = state_clone_for_reload.borrow();
+                if let Some(ts) = state.open_tabs.get(&page_clone_for_reload) {
+                    ui::actions::reload_preview(ts, state.zoom_level);
+                }
+            });
+
+            let current_web_view = std::rc::Rc::new(std::cell::RefCell::new(None));
+            
+            // Wire up warning bar close button
+            let warning_bar_close_clone = warning_bar.clone();
+            warning_bar.connect_response(move |_, response| {
+                if response == gtk::ResponseType::Close {
+                    warning_bar_close_clone.set_revealed(false);
+                }
             });
 
             state_clone.borrow_mut().open_tabs.insert(
@@ -167,7 +301,12 @@ fn build_ui(app: &libadwaita::Application) {
                     file_path,
                     buffer: editor.buffer.clone(),
                     base_title,
-                    web_view: web_view_rc.clone(),
+                    web_view_container,
+                    current_web_view,
+                    is_latex,
+                    preview_stale,
+                    spinner,
+                    warning_bar,
                 },
             );
 
@@ -181,6 +320,7 @@ fn build_ui(app: &libadwaita::Application) {
     // Wire up status bar location updates when switching tabs
     let state_clone_for_switch = state.clone();
     let location_label_for_switch = status_bar.location_label.clone();
+    let type_label_for_switch = status_bar.type_label.clone();
     tabs.tab_view.connect_selected_page_notify(move |tv| {
         if let Some(page) = tv.selected_page() {
             if let Some(ts) = state_clone_for_switch.borrow().open_tabs.get(&page) {
@@ -189,6 +329,12 @@ fn build_ui(app: &libadwaita::Application) {
                     let line = iter.line() + 1;
                     let col = iter.line_offset() + 1;
                     location_label_for_switch.set_label(&format!("Ln {}, Col {}", line, col));
+                }
+                
+                if *ts.is_latex.borrow() {
+                    type_label_for_switch.set_label("LaTeX");
+                } else {
+                    type_label_for_switch.set_label("Markdown");
                 }
             }
         }
@@ -200,7 +346,7 @@ fn build_ui(app: &libadwaita::Application) {
     window.set_content(Some(&toolbar_view));
 
     // Actions setup
-    ui::actions::setup_actions(&app, &window, state.clone(), &tabs, create_tab.clone());
+    ui::actions::setup_actions(&app, &window, state.clone(), &tabs, create_tab.clone(), status_bar.type_label.clone());
 
     window.present();
 }
@@ -210,6 +356,24 @@ fn main() {
     std::thread::spawn(|| {
         ai::downloader::check_and_download_models();
     });
+
+    
+    // Extract latex_renderer
+    let cache_dir = dirs::cache_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    let biscuit_cache = cache_dir.join("biscuit");
+    std::fs::create_dir_all(&biscuit_cache).unwrap();
+    let latex_dir = biscuit_cache.join("latex_renderer");
+    if !latex_dir.exists() {
+        let tarball_path = biscuit_cache.join("latex_renderer.tar.gz");
+        std::fs::write(&tarball_path, biscuit::preview::LATEX_RENDERER_TGZ).unwrap();
+        std::fs::create_dir_all(&latex_dir).unwrap();
+        std::process::Command::new("tar")
+            .args(&["xzf", tarball_path.to_str().unwrap(), "-C", latex_dir.to_str().unwrap()])
+            .status()
+            .unwrap();
+        let _ = std::fs::remove_file(tarball_path);
+    }
+
 
     let app = libadwaita::Application::builder()
         .application_id("com.biscuit.App")
@@ -268,7 +432,7 @@ fn main() {
             }
         ";
         let provider = gtk::CssProvider::new();
-        provider.load_from_data(css);
+        provider.load_from_string(css);
         gtk::style_context_add_provider_for_display(
             &gtk::gdk::Display::default().expect("Could not connect to a display."),
             &provider,

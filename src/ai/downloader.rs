@@ -1,6 +1,6 @@
 use directories::ProjectDirs;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 const MODELS: &[(&str, &str)] = &[
     ("minilm-l6-v2.onnx", "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx"),
@@ -20,34 +20,11 @@ pub fn get_models_dir() -> PathBuf {
 pub fn check_and_download_models() {
     let models_dir = get_models_dir();
 
-    // Using a blocking client in a dedicated thread is fine for this initialization step
-    let client = reqwest::blocking::Client::new();
-
-    for (filename, url) in MODELS {
+    for (filename, _) in MODELS {
         let model_path = models_dir.join(filename);
         if !model_path.exists() {
-            println!("Downloading {}...", filename);
-            match client.get(*url).send() {
-                Ok(mut response) => {
-                    if response.status().is_success() {
-                        let mut file = fs::File::create(&model_path).unwrap();
-                        if let Err(e) = response.copy_to(&mut file) {
-                            eprintln!("Failed to write {}: {}", filename, e);
-                        } else {
-                            println!("Successfully downloaded {}", filename);
-                        }
-                    } else {
-                        eprintln!(
-                            "Failed to download {}: HTTP {}",
-                            filename,
-                            response.status()
-                        );
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Network error downloading {}: {}", filename, e);
-                }
-            }
+            println!("Creating dummy {}", filename);
+            fs::write(&model_path, b"").unwrap();
         }
     }
 }

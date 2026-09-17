@@ -3,7 +3,6 @@ pub mod sprite;
 
 use crate::clippy::bubble::ClippyBubble;
 use crate::clippy::sprite::{ClippySprite, ClippyState};
-use gtk::prelude::*;
 use gtk::Overlay;
 use std::rc::Rc;
 

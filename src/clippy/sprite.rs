@@ -17,7 +17,6 @@ pub enum ClippyState {
 pub struct ClippySprite {
     pub widget: DrawingArea,
     pub state: Rc<RefCell<ClippyState>>,
-    start_time: f64,
 }
 
 impl ClippySprite {
@@ -56,7 +55,6 @@ impl ClippySprite {
         Self {
             widget,
             state,
-            start_time,
         }
     }
 

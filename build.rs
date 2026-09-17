@@ -130,8 +130,42 @@ fn download_katex(out_dir: &PathBuf) {
     fs::write(version_file, tag_name).unwrap();
 }
 
+fn build_latex_renderer() {
+    let renderer_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("latex_renderer");
+    if !renderer_dir.exists() {
+        return;
+    }
+
+    // Run npm install
+    let status = Command::new("npm")
+        .current_dir(&renderer_dir)
+        .args(&["install"])
+        .status()
+        .expect("Failed to run npm install");
+    assert!(status.success(), "npm install failed in latex_renderer");
+
+    // Run npm run build
+    let status = Command::new("npm")
+        .current_dir(&renderer_dir)
+        .args(&["run", "build"])
+        .status()
+        .expect("Failed to run npm run build");
+    assert!(status.success(), "npm run build failed in latex_renderer");
+
+    // Tar the dist folder to OUT_DIR
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let tar_path = out_dir.join("latex_renderer.tar.gz");
+    let status = Command::new("tar")
+        .current_dir(renderer_dir.join("dist"))
+        .args(&["-czf", tar_path.to_str().unwrap(), "."])
+        .status()
+        .expect("Failed to create tar archive");
+    assert!(status.success(), "Failed to create latex_renderer.tar.gz");
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=latex_renderer/src/index.js");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
@@ -153,4 +187,5 @@ fn main() {
     );
 
     download_katex(&out_dir);
+    build_latex_renderer();
 }

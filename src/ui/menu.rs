@@ -1,5 +1,4 @@
 use gtk::gio;
-use gtk::prelude::*;
 
 pub fn create_menu_model() -> gio::Menu {
     let menu = gio::Menu::new();
@@ -19,6 +18,13 @@ pub fn create_menu_model() -> gio::Menu {
     export_submenu.append(Some("Export to Docx"), Some("app.export_docx"));
     export_section.append_submenu(Some("Export"), &export_submenu);
     menu.append_section(None, &export_section);
+
+    // View section
+    let view_section = gio::Menu::new();
+    view_section.append(Some("Zoom In"), Some("app.zoom_in"));
+    view_section.append(Some("Zoom Out"), Some("app.zoom_out"));
+    view_section.append(Some("Toggle Theme"), Some("app.toggle_theme"));
+    menu.append_section(None, &view_section);
 
     // Preferences & About section
     let prefs_section = gio::Menu::new();

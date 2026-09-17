@@ -1,5 +1,5 @@
 use gtk::prelude::*;
-use gtk::{TextTag, TextTagTable};
+use gtk::TextTag;
 use sourceview5::Buffer;
 
 pub struct EditorTags {
