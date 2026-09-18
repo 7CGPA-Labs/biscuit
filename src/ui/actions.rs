@@ -31,7 +31,7 @@ pub struct AppState {
     pub zoom_level: f64,
 }
 
-pub fn reload_preview(ts: &TabState, zoom_level: f64) {
+pub fn reload_preview(ts: &TabState, zoom_level: f64, hard_reload: bool) {
     let start = ts.buffer.start_iter();
     let end = ts.buffer.end_iter();
     let text = ts.buffer.text(&start, &end, false);
@@ -47,7 +47,14 @@ pub fn reload_preview(ts: &TabState, zoom_level: f64) {
     };
     
     wv.set_zoom_level(zoom_level);
-    wv.load_content(&text, is_ltx);
+    let is_dark = libadwaita::StyleManager::default().is_dark();
+
+    if hard_reload {
+        wv.hard_reload(&text, is_ltx, is_dark);
+    } else {
+        wv.load_content(&text, is_ltx);
+        wv.set_theme(is_dark);
+    }
     
     *ts.current_preview.borrow_mut() = Some(wv);
     
@@ -161,7 +168,7 @@ pub fn setup_actions(
                                 }
                                 // force update preview
                                 let zoom_level = state_inner.borrow().zoom_level;
-                                reload_preview(ts, zoom_level);
+                                reload_preview(ts, zoom_level, false);
                             }
                         }
                     });
@@ -219,7 +226,7 @@ pub fn setup_actions(
                         }
                         // force update preview
                         let zoom_level = state_inner.borrow().zoom_level;
-                        reload_preview(ts, zoom_level);
+                        reload_preview(ts, zoom_level, false);
                     }
                 }
             });
@@ -350,29 +357,12 @@ pub fn setup_actions(
 
     // Toggle Theme
     let action_toggle_theme = gio::SimpleAction::new("toggle_theme", None);
-    let state_clone = state.clone();
     action_toggle_theme.connect_activate(move |_, _| {
         let manager = libadwaita::StyleManager::default();
-        let is_dark = if manager.is_dark() {
+        if manager.is_dark() {
             manager.set_color_scheme(libadwaita::ColorScheme::ForceLight);
-            false
         } else {
             manager.set_color_scheme(libadwaita::ColorScheme::ForceDark);
-            true
-        };
-
-        let style_manager = sourceview5::StyleSchemeManager::default();
-        let scheme = if is_dark {
-            style_manager.scheme("Adwaita-dark").or_else(|| style_manager.scheme("oblivion"))
-        } else {
-            style_manager.scheme("Adwaita").or_else(|| style_manager.scheme("classic"))
-        };
-
-        if let Some(scheme) = scheme {
-            let s = state_clone.borrow();
-            for ts in s.open_tabs.values() {
-                ts.buffer.set_style_scheme(Some(&scheme));
-            }
         }
     });
     app.add_action(&action_toggle_theme);

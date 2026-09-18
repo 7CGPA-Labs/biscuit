@@ -23,7 +23,7 @@ window.renderContent = function(text, isLatex) {
   app.className = '';
   
   // Strip YAML frontmatter for both MD and TEX if present
-  let processedText = text.replace(/^---[\s\S]*?---\s*/, '');
+  let processedText = text.replace(/^\s*---[\s\S]*?---\s*/, '');
 
   if (isLatex) {
     try {
@@ -31,11 +31,14 @@ window.renderContent = function(text, isLatex) {
       // So we strip \usepackage{amsmath} to prevent the require() error.
       // And we replace \begin{align} with \[ \begin{aligned} which is natively supported.
       let safeLatex = processedText
-        .replace(/\\usepackage\{.*?\}/g, '')
-        .replace(/\\begin\{equation\}/g, '\\[')
-        .replace(/\\end\{equation\}/g, '\\]')
-        .replace(/\\begin\{align\}/g, '\\[\\begin{aligned}')
-        .replace(/\\end\{align\}/g, '\\end{aligned}\\]');
+        .replace(/\\documentclass(?:(?:\[[\s\S]*?\])?\s*\{[\s\S]*?\})?/g, '')
+        .replace(/\\begin\s*\{document\}/g, '')
+        .replace(/\\end\s*\{document\}/g, '')
+        .replace(/\\usepackage(?:(?:\[[\s\S]*?\])?\s*\{[\s\S]*?\})?/g, '')
+        .replace(/\\begin\s*\{equation\}/g, '\\[')
+        .replace(/\\end\s*\{equation\}/g, '\\]')
+        .replace(/\\begin\s*\{align\}/g, '\\[\\begin{aligned}')
+        .replace(/\\end\s*\{align\}/g, '\\end{aligned}\\]');
         
       app.className = 'latex-container';
       const generator = new HtmlGenerator({ hyphenate: false });

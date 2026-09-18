@@ -25,7 +25,7 @@ impl PdfPreview {
         let pending_script: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         
         let html_content = include_str!(concat!(env!("OUT_DIR"), "/webview_index.html"));
-        webview.load_html(html_content, Some("http://localhost/"));
+        webview.load_html(html_content, Some("http://localhost:17539/"));
         
         let loaded_clone = is_loaded.clone();
         let pending_clone = pending_script.clone();
@@ -40,10 +40,23 @@ impl PdfPreview {
                         }
                     });
                 }
+            } else if event == LoadEvent::Started {
+                *loaded_clone.borrow_mut() = false;
             }
         });
         
         Self { webview, is_loaded, pending_script }
+    }
+
+    pub fn hard_reload(&self, text: &str, is_latex: bool, is_dark: bool) {
+        *self.is_loaded.borrow_mut() = false;
+        
+        let escaped_text = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_string());
+        let script = format!("if (window.renderContent) {{ window.renderContent({}, {}); }} if (window.setTheme) {{ window.setTheme({}); }}", escaped_text, is_latex, is_dark);
+        
+        *self.pending_script.borrow_mut() = Some(script);
+        let html_content = include_str!(concat!(env!("OUT_DIR"), "/webview_index.html"));
+        self.webview.load_html(html_content, Some("http://localhost:17539/"));
     }
 
     pub fn get_widget(&self) -> &gtk::Widget {
@@ -55,9 +68,17 @@ impl PdfPreview {
     }
 
     pub fn load_content(&self, text: &str, is_latex: bool) {
-        let escaped_text = text.replace('\\', "\\\\").replace('`', "\\`").replace('$', "\\$");
-        let script = format!("if (window.renderContent) {{ window.renderContent(`{}`, {}); }}", escaped_text, is_latex);
-        
+        let escaped_text = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_string());
+        let script = format!("if (window.renderContent) {{ window.renderContent({}, {}); }}", escaped_text, is_latex);
+        self.evaluate_or_queue(script);
+    }
+
+    pub fn set_theme(&self, is_dark: bool) {
+        let script = format!("if (window.setTheme) {{ window.setTheme({}); }}", is_dark);
+        self.evaluate_or_queue(script);
+    }
+
+    fn evaluate_or_queue(&self, script: String) {
         if *self.is_loaded.borrow() {
             self.webview.evaluate_javascript(&script, None, None, gtk::gio::Cancellable::NONE, |result| {
                 if let Err(e) = result {
@@ -65,7 +86,15 @@ impl PdfPreview {
                 }
             });
         } else {
-            *self.pending_script.borrow_mut() = Some(script);
+            let mut current = self.pending_script.borrow_mut();
+            let new_script = if let Some(mut existing) = current.take() {
+                existing.push_str("\n");
+                existing.push_str(&script);
+                existing
+            } else {
+                script
+            };
+            *current = Some(new_script);
         }
     }
 }

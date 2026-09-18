@@ -8,6 +8,15 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
     <style>
       :root {
+        /* Default light mode variables */
+        --bg-color: #ffffff;
+        --text-color: #000000;
+        --link-color: #1a73e8;
+        --code-bg: #f5f5f5;
+      }
+      
+      :root[data-theme="dark"] {
+        /* Dark mode variables (Catppuccin Mocha) */
         --bg-color: #1e1e2e;
         --text-color: #cdd6f4;
         --link-color: #89b4fa;
@@ -20,6 +29,7 @@
         line-height: 1.6;
         padding: 2rem;
         margin: 0;
+        transition: background-color 0.3s, color 0.3s;
       }
       a {
         color: var(--link-color);
@@ -44,11 +54,23 @@
         padding: 2rem;
         border-radius: 8px;
       }
+      :root[data-theme="dark"] .latex-container {
+        background: #181825;
+        color: #cdd6f4;
+      }
     </style>
   </head>
-  <body>
+  <body oncontextmenu="return false;">
     <div id="app"></div>
     <script>
+      window.setTheme = function(isDark) {
+        if (isDark) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        } else {
+          document.documentElement.removeAttribute('data-theme');
+        }
+      };
+
       window.require = function(mod) {
         console.warn("Ignored dynamic require for: " + mod);
         if (mod === 'path') {

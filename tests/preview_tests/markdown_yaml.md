@@ -7,7 +7,6 @@ tags: [markdown, test, yaml]
 # Testing Markdown with YAML
 
 This file contains **YAML frontmatter** at the top.
-
 ## Features
 - Bulleted list
 - *Italic text*

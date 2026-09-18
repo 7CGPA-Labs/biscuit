@@ -215,7 +215,7 @@ fn build_ui(app: &libadwaita::Application) {
                                     } else if response == 1 {
                                         let state = state_clone_for_dialog.borrow();
                                         if let Some(ts) = state.open_tabs.get(&page_clone_for_dialog) {
-                                            ui::actions::reload_preview(ts, state.zoom_level);
+                                            ui::actions::reload_preview(ts, state.zoom_level, false);
                                         }
                                     }
                                 }
@@ -228,7 +228,7 @@ fn build_ui(app: &libadwaita::Application) {
                         reload_btn_clone_for_toggle.set_visible(true);
                         let state = state_clone_for_toggle.borrow();
                         if let Some(ts) = state.open_tabs.get(&page_clone_for_toggle) {
-                            ui::actions::reload_preview(ts, state.zoom_level);
+                            ui::actions::reload_preview(ts, state.zoom_level, false);
                         }
                     }
                 } else {
@@ -279,7 +279,7 @@ fn build_ui(app: &libadwaita::Application) {
             reload_preview_btn.connect_clicked(move |_| {
                 let state = state_clone_for_reload.borrow();
                 if let Some(ts) = state.open_tabs.get(&page_clone_for_reload) {
-                    ui::actions::reload_preview(ts, state.zoom_level);
+                    ui::actions::reload_preview(ts, state.zoom_level, true);
                 }
             });
 
@@ -346,14 +346,85 @@ fn build_ui(app: &libadwaita::Application) {
     // Actions setup
     ui::actions::setup_actions(&app, &window, state.clone(), &tabs, create_tab.clone(), status_bar.type_label.clone());
 
+    let style_manager = libadwaita::StyleManager::default();
+    let state_for_theme = state.clone();
+    style_manager.connect_dark_notify(move |manager| {
+        let is_dark = manager.is_dark();
+        let sv_manager = sourceview5::StyleSchemeManager::default();
+        let scheme = if is_dark {
+            sv_manager.scheme("Adwaita-dark").or_else(|| sv_manager.scheme("oblivion"))
+        } else {
+            sv_manager.scheme("Adwaita").or_else(|| sv_manager.scheme("classic"))
+        };
+
+        let s = state_for_theme.borrow();
+        for ts in s.open_tabs.values() {
+            if let Some(scheme) = &scheme {
+                ts.buffer.set_style_scheme(Some(scheme));
+            }
+            if let Some(wv) = ts.current_preview.borrow().as_ref() {
+                wv.set_theme(is_dark);
+            }
+        }
+    });
+
     window.present();
+
+    if ai::downloader::needs_download() {
+        let (progress_tx, progress_rx) = std::sync::mpsc::channel();
+        let (text_tx, text_rx) = std::sync::mpsc::channel();
+        
+        std::thread::spawn(move || {
+            ai::downloader::check_and_download_models(progress_tx, text_tx);
+        });
+
+        let progress_window = gtk::Window::builder()
+            .title("Downloading AI Models")
+            .transient_for(&window)
+            .modal(true)
+            .hide_on_close(true)
+            .default_width(350)
+            .build();
+            
+        let vbox = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        vbox.set_margin_top(16);
+        vbox.set_margin_bottom(16);
+        vbox.set_margin_start(16);
+        vbox.set_margin_end(16);
+        
+        let label = gtk::Label::new(Some("Initializing download..."));
+        label.set_wrap(true);
+        let progress_bar = gtk::ProgressBar::new();
+        progress_bar.set_fraction(0.0);
+        
+        vbox.append(&label);
+        vbox.append(&progress_bar);
+        progress_window.set_child(Some(&vbox));
+        
+        progress_window.present();
+        
+        let pw_clone = progress_window.clone();
+        glib::timeout_add_local(std::time::Duration::from_millis(50), move || {
+            while let Ok(text) = text_rx.try_recv() {
+                label.set_label(&text);
+            }
+            if let Ok(progress) = progress_rx.try_recv() {
+                progress_bar.set_fraction(progress);
+                if progress >= 1.0 {
+                    pw_clone.close();
+                    return glib::ControlFlow::Break;
+                }
+            }
+            glib::ControlFlow::Continue
+        });
+    }
 }
 
 fn main() {
-    // Check and download models on first run
-    std::thread::spawn(|| {
-        ai::downloader::check_and_download_models();
-    });
+    // Suppress noisy libEGL warnings in containers without hardware acceleration
+    std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+    std::env::set_var("GDK_DEBUG", "gl-disable");
+    std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
 
     // Disable the WebKitGTK sandbox to prevent bwrap permission errors in restricted environments.
     std::env::set_var("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
