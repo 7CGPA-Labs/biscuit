@@ -3,6 +3,7 @@ pub mod sprite;
 
 use crate::clippy::bubble::ClippyBubble;
 use crate::clippy::sprite::{ClippySprite, ClippyState};
+use gtk::prelude::*;
 use gtk::Overlay;
 use std::rc::Rc;
 
@@ -17,6 +18,13 @@ impl ClippyOverlay {
         overlay.add_overlay(&sprite.widget);
 
         let bubble = Rc::new(ClippyBubble::new(&sprite.widget));
+
+        let motion = gtk::EventControllerMotion::new();
+        let cursor_pos = sprite.cursor_pos.clone();
+        motion.connect_motion(move |_, x, y| {
+            *cursor_pos.borrow_mut() = (x, y);
+        });
+        overlay.add_controller(motion);
 
         Self { sprite, bubble }
     }

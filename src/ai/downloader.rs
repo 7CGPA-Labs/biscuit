@@ -5,9 +5,8 @@ use std::sync::mpsc::Sender;
 use std::io::Write;
 
 const MODELS: &[(&str, &str)] = &[
-    ("minilm-l6-v2.onnx", "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx"),
-    ("t5-small.onnx", "https://huggingface.co/Xenova/t5-small/resolve/main/onnx/model_quantized.onnx"),
-    ("smollm2-135m.onnx", "https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct/resolve/main/onnx/model_quantized.onnx"), 
+    ("smollm2-360m-instruct-q4_k_m.gguf", "https://huggingface.co/bartowski/SmolLM2-360M-Instruct-GGUF/resolve/main/SmolLM2-360M-Instruct-Q4_K_M.gguf"),
+    ("smollm-tokenizer.json", "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/tokenizer.json"),
 ];
 
 pub fn get_models_dir() -> PathBuf {

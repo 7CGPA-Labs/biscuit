@@ -87,7 +87,17 @@ fn build_ui(app: &libadwaita::Application) {
                 .build();
             scrolled_window.set_child(Some(editor.widget()));
             overlay.set_child(Some(&scrolled_window));
-            let _clippy = biscuit::clippy::ClippyOverlay::new(&overlay);
+            let clippy = std::rc::Rc::new(biscuit::clippy::ClippyOverlay::new(&overlay));
+
+            let menu = gtk::gio::Menu::new();
+            let clippy_submenu = gtk::gio::Menu::new();
+            clippy_submenu.append(Some("Fix Grammar"), Some("win.clippy_fix_grammar"));
+            clippy_submenu.append(Some("Autocomplete Sentence"), Some("win.clippy_autocomplete"));
+            menu.append_submenu(Some("Ask Clippy"), &clippy_submenu);
+            
+            if let Ok(view) = editor.widget().clone().downcast::<sourceview5::View>() {
+                view.set_extra_menu(Some(&menu));
+            }
 
             let preview_scrolled = gtk::ScrolledWindow::builder()
                 .hexpand(true)
@@ -305,6 +315,7 @@ fn build_ui(app: &libadwaita::Application) {
                     preview_stale,
                     spinner,
                     warning_bar,
+                    clippy,
                 },
             );
 

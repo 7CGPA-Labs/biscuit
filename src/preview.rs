@@ -103,7 +103,11 @@ pub fn export_document(text: &str, is_latex: bool, output_path: &std::path::Path
     let out_dir = PathBuf::from(env!("OUT_DIR"));
     let temp_dir = std::env::temp_dir();
     
-    let text = text.to_string();
+    let mut text = text.to_string();
+    if is_latex && !text.contains("\\begin{document}") {
+        text = format!("\\documentclass{{article}}\n\\begin{{document}}\n{}\n\\end{{document}}\n", text);
+    }
+    
     let is_latex = is_latex;
     let output_path = output_path.to_path_buf();
     let format = format.to_string();

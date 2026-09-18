@@ -4,7 +4,7 @@ use gtk::gio;
 use gtk::prelude::*;
 use gtk::FileDialog;
 use libadwaita::ApplicationWindow;
-use sourceview5::prelude::*;
+
 use std::cell::RefCell;
 use std::fs;
 use std::path::PathBuf;
@@ -23,6 +23,7 @@ pub struct TabState {
     pub preview_stale: Rc<RefCell<bool>>,
     pub spinner: gtk::Spinner,
     pub warning_bar: gtk::InfoBar,
+    pub clippy: Rc<crate::clippy::ClippyOverlay>,
 }
 
 pub struct AppState {
@@ -72,6 +73,8 @@ pub fn setup_actions(
     create_tab: Rc<dyn Fn(Option<PathBuf>, &str)>,
     type_label: gtk::Label,
 ) {
+    // Shared AiWorker
+    let ai_worker = std::sync::Arc::new(crate::ai::worker::AiWorker::new());
     // New File Action
     let action_new = gio::SimpleAction::new("new", None);
     let create_tab_clone = create_tab.clone();
@@ -316,6 +319,167 @@ pub fn setup_actions(
         about.present();
     });
     app.add_action(&action_about);
+
+    // Helper for Clippy actions
+    fn trigger_clippy_action(
+        intent: crate::ai::models::Intent,
+        tab_view: &libadwaita::TabView,
+        state: &std::rc::Rc<std::cell::RefCell<AppState>>,
+        worker: &std::sync::Arc<crate::ai::worker::AiWorker>,
+    ) {
+        if let Some(page) = tab_view.selected_page() {
+            let s = state.borrow();
+            if let Some(ts) = s.open_tabs.get(&page) {
+                let clippy = ts.clippy.clone();
+                let buffer = ts.buffer.clone();
+                let worker_inner = worker.clone();
+
+                clippy.think();
+                
+                let (start, end) = if buffer.has_selection() {
+                    buffer.selection_bounds().unwrap_or((buffer.start_iter(), buffer.end_iter()))
+                } else {
+                    let mut start = buffer.start_iter();
+                    let mut end = buffer.end_iter();
+                    if let Some(mark) = buffer.mark("insert") {
+                        let iter = buffer.iter_at_mark(&mark);
+                        start = iter.clone();
+                        start.backward_line();
+                        end = iter.clone();
+                        end.forward_line();
+                    }
+                    (start, end)
+                };
+
+                let mark_start = buffer.create_mark(None, &start, true);
+                let mark_end = buffer.create_mark(None, &end, false);
+
+                let selected_text = buffer.text(&start, &end, false).to_string();
+
+                let (tx, rx) = std::sync::mpsc::channel();
+                
+                std::thread::spawn(move || {
+                    let result = match intent {
+                        crate::ai::models::Intent::FixGrammar => {
+                            crate::ai::models::fix_grammar(&worker_inner, &selected_text)
+                        }
+                        crate::ai::models::Intent::Ghostwrite => {
+                            crate::ai::models::ghostwrite(&worker_inner, &selected_text)
+                        }
+                        crate::ai::models::Intent::Unknown => {
+                            crate::ai::models::fix_grammar(&worker_inner, &selected_text) // Fallback
+                        }
+                    };
+                    let _ = tx.send((intent, selected_text, result));
+                });
+                
+                let buffer_clone = buffer.clone();
+                glib::timeout_add_local(std::time::Duration::from_millis(100), move || {
+                    match rx.try_recv() {
+                        Ok((intent, original, result)) => {
+                            match result {
+                                Ok(new_text) => {
+                                    clippy.set_state(crate::clippy::sprite::ClippyState::Alert);
+                                    
+                                    let diffs = crate::ai::models::compute_diff(&original, &new_text);
+                                    let mut display_text = format!("{:?}:\n", intent);
+                            for (tag, val) in diffs {
+                                match tag {
+                                    similar::ChangeTag::Delete => display_text.push_str(&format!("[-{}-]", val.trim())),
+                                    similar::ChangeTag::Insert => display_text.push_str(&format!("[+{}+]", val.trim())),
+                                    similar::ChangeTag::Equal => display_text.push_str(&val),
+                                }
+                            }
+        
+                            let clippy_inner_accept = clippy.clone();
+                            let clippy_inner_reject = clippy.clone();
+                            let buffer_inner = buffer_clone.clone();
+                            
+                            let mark_start_accept = mark_start.clone();
+                            let mark_end_accept = mark_end.clone();
+                            
+                            clippy.bubble.show_actions(
+                                &display_text,
+                                vec![
+                                    ("Accept", Box::new(move || {
+                                        let mut iter_start = buffer_inner.iter_at_mark(&mark_start_accept);
+                                        let mut iter_end = buffer_inner.iter_at_mark(&mark_end_accept);
+                                        buffer_inner.delete(&mut iter_start, &mut iter_end);
+                                        buffer_inner.insert(&mut iter_start, &new_text);
+                                        
+                                        clippy_inner_accept.set_state(crate::clippy::sprite::ClippyState::Idle);
+                                        clippy_inner_accept.bubble.widget.popdown();
+                                    })),
+                                    ("Reject", Box::new(move || {
+                                        clippy_inner_reject.set_state(crate::clippy::sprite::ClippyState::Idle);
+                                        clippy_inner_reject.bubble.widget.popdown();
+                                    })),
+                                ],
+                            );
+                            
+                            return glib::ControlFlow::Break;
+                                }
+                                Err(error_msg) => {
+                                    clippy.set_state(crate::clippy::sprite::ClippyState::Confused);
+                                    let clippy_inner_dismiss = clippy.clone();
+                                    clippy.bubble.show_actions(
+                                        &error_msg,
+                                        vec![
+                                            ("Dismiss", Box::new(move || {
+                                                clippy_inner_dismiss.set_state(crate::clippy::sprite::ClippyState::Idle);
+                                                clippy_inner_dismiss.bubble.widget.popdown();
+                                            })),
+                                        ]
+                                    );
+                                    return glib::ControlFlow::Break;
+                                }
+                            }
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            clippy.set_state(crate::clippy::sprite::ClippyState::Confused);
+                            
+                            let clippy_inner_dismiss = clippy.clone();
+                            clippy.bubble.show_actions(
+                                "Failed to generate text. The AI worker might have crashed.",
+                                vec![
+                                    ("Dismiss", Box::new(move || {
+                                        clippy_inner_dismiss.set_state(crate::clippy::sprite::ClippyState::Idle);
+                                        clippy_inner_dismiss.bubble.widget.popdown();
+                                    })),
+                                ]
+                            );
+                            return glib::ControlFlow::Break;
+                        }
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {
+                            return glib::ControlFlow::Continue;
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    // Fix Grammar Action
+    let action_fix_grammar = gio::SimpleAction::new("clippy_fix_grammar", None);
+    let tab_view_fg = tab_bar.tab_view.clone();
+    let state_fg = state.clone();
+    let worker_fg = ai_worker.clone();
+    action_fix_grammar.connect_activate(move |_, _| {
+        trigger_clippy_action(crate::ai::models::Intent::FixGrammar, &tab_view_fg, &state_fg, &worker_fg);
+    });
+    window.add_action(&action_fix_grammar);
+    app.set_accels_for_action("win.clippy_fix_grammar", &["<Ctrl>g"]);
+
+    // Autocomplete Action
+    let action_autocomplete = gio::SimpleAction::new("clippy_autocomplete", None);
+    let tab_view_ac = tab_bar.tab_view.clone();
+    let state_ac = state.clone();
+    let worker_ac = ai_worker.clone();
+    action_autocomplete.connect_activate(move |_, _| {
+        trigger_clippy_action(crate::ai::models::Intent::Ghostwrite, &tab_view_ac, &state_ac, &worker_ac);
+    });
+    window.add_action(&action_autocomplete);
+    app.set_accels_for_action("win.clippy_autocomplete", &["<Ctrl>space"]);
 
     // Zoom In
     let action_zoom_in = gio::SimpleAction::new("zoom_in", None);
