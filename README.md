@@ -6,6 +6,8 @@ A sleek, native multi-tab Markdown and LaTeX editor powered by GTK4 and Libadwai
 - **Multi-Tab Interface:** Seamlessly edit multiple Markdown and LaTeX documents concurrently.
 - **Native GTK4 Integration:** Designed strictly around Libadwaita for a beautiful, system-native aesthetic.
 - **Dynamic Previews:** Toggleable preview panes that live alongside your source code. Uses a WebKit6 backend and `latex.js` for robust, high-fidelity LaTeX rendering.
+- **Offline AI Assistant:** A built-in local AI engine powered by Candle and SmolLM2 (360M parameters) running entirely on CPU. Access smart features like "Ghostwrite" and "Fix Grammar".
+- **Clippy Sprite:** Features an interactive, dynamic paperclip sprite overlay that tracks your mouse and animates while the AI is thinking!
 
 ## Installation
 
